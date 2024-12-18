@@ -8,10 +8,4 @@ function loadScript(url, callback) {
     document.head.appendChild(script);
 }
 
-loadScript('js/avgtime.js', function () {
-    console.log('脚本加载完成');
-});
-
-document.getElementById('clickMe').addEventListener('click', function () {
-    alert('按钮被点击了！');
-});
+loadScript('js/avgtime.js', function () { });

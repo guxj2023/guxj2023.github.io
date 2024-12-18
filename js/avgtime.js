@@ -12,8 +12,10 @@
 (async function () {
     'use strict';
 
+
+
     const k_todayDate = new Date();
-    let m_attendanceData;
+
     let m_todaySignJson = {
         "signin_time": "",
         "signout_time": ""
@@ -23,7 +25,8 @@
         const yourName = "guxj";
         return `${yourName}-${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
     }
-    async function getAttendanceData() {
+
+    async function getLocalFile() {
         const rootUrl = "http://127.0.0.1:888";
         function getUrl(name) {
             return `${rootUrl}/${name}.json`;
@@ -38,8 +41,7 @@
         }
         let isUrlValid = await checkURL(rootUrl);
         if (!isUrlValid) {
-            addInfoToHtml("数据加载失败");
-            return;
+            return null;
         }
         let lastDay = k_todayDate;
         let res;
@@ -63,13 +65,13 @@
         if (res?.status === 200) {
             const buffer = await res.arrayBuffer();
             let file = new File([buffer], "");
-            m_attendanceData = JSON.parse(await file.text());
-            m_avgTimeText = document.createTextNode(caclAvgTime());
+            return file;
         } else {
-            m_attendanceData = [];
-            addInfoToHtml("数据加载失败");
+            return null;
         }
     }
+
+
 
     const legalAttendanceDaysMap = {
         "2024": {
@@ -203,52 +205,58 @@
         }
     }
 
-
-    function caclAvgTime() {
-        let yearNow;
-        let monthNow;
-        let dayNow;
-        let list = [];
-        let monthCount = 0;
-        for (let i = m_attendanceData.length - 1; i >= 0; i--) {
-            const dayJson = m_attendanceData[i];
-            const signinText = dayJson.signin_time.replace(/-/g, '/');
-            const signoutText = dayJson.signout_time.replace(/-/g, '/');
-            if (signinText === "" || signoutText === "") {
-                continue;
-            }
-            let signinTime = new Date(signinText);
-            let signoutTime = new Date(signoutText);
-            // 不统计非本月数据
-            if (monthNow == null) {
-                monthNow = signinTime.getMonth();
-                yearNow = signinTime.getFullYear();
-                monthCount++;
-            } else if (monthNow != signinTime.getMonth()) {
-                if (monthCount > 2) {
-                    return "";
-                } else {
-                    let calculator = new GuMonthlyAttendanceInfoCalculator(8, 18, 19);
-                    let info = calculator.calcAvgTime(list, yearNow, monthNow + 1);
-                    info.showInfo();
-                    list = [];
-                    monthNow = signinTime.getMonth();
-                    monthCount++;
-                }
-            }
-            // 不统计重复的日期
-            if (dayNow === signinTime.getDate()) {
-                continue;
+    class GuAttendanceModel {
+        m_attendanceData;
+        m_curIndex = -1;
+        constructor(data) {
+            if (data == null) {
+                this.m_attendanceData = [];
             } else {
-                dayNow = signinTime.getDate();
+                this.m_attendanceData = JSON.parse(data);
+                this.m_curIndex = this.m_attendanceData.length - 1;
             }
-            list.push({
-                signinTime: signinTime,
-                signoutTime: signoutTime
-            });
         }
-        let calculator = new InfoCalculator(8, 18, 19);
-        let info = calculator.calcAvgTime(list);
+
+        readOneMonthData() {
+            let yearNow;
+            let monthNow;
+            let dayNow;
+            let list = [];
+            for (; this.m_curIndex >= 0; this.m_curIndex--) {
+                const dayJson = this.m_attendanceData[this.m_curIndex];
+                const signinText = dayJson.signin_time.replace(/-/g, '/');
+                const signoutText = dayJson.signout_time.replace(/-/g, '/');
+                if (signinText === "" || signoutText === "") {
+                    continue;
+                }
+                let signinTime = new Date(signinText);
+                let signoutTime = new Date(signoutText);
+
+                if (monthNow == null) {
+                    monthNow = signinTime.getMonth();
+                    yearNow = signinTime.getFullYear();
+                } else if (monthNow != signinTime.getMonth()) {
+                    return { list: list, year: yearNow, month: monthNow + 1 };
+                }
+                // 不统计重复的日期
+                if (dayNow === signinTime.getDate()) {
+                    continue;
+                } else {
+                    dayNow = signinTime.getDate();
+                }
+                list.push({
+                    signinTime: signinTime,
+                    signoutTime: signoutTime
+                });
+            }
+            return { list: list, year: yearNow, month: monthNow ?? -1 + 1 };
+        }
+    }
+
+
+    function caclAvgTime(monthData) {
+        let calculator = new GuMonthlyAttendanceInfoCalculator(8, 18, 19);
+        let info = calculator.calcAvgTime(monthData.list, monthData.year, monthData.month);
         info.showInfo();
         return info.getAvgTime();
     }
@@ -297,14 +305,30 @@
                 } else if (node?.parentElement?.className === "signout_time") {
                     m_todaySignJson.signout_time = node?.nodeValue;
                     updateAttendance();
-                    m_avgTimeText.nodeValue = caclAvgTime();
                     observer.disconnect();
                 }
             }
         }
     };
 
-    await getAttendanceData();
+    let model;
+
+    const fileData = await (await getLocalFile())?.text();
+    if (fileData == null) {
+        addInfoToHtml("数据加载失败");
+        return;
+    } else {
+        model = new GuAttendanceModel(fileData);
+        let monthData = model.readOneMonthData();
+        m_avgTimeText = document.createTextNode(caclAvgTime(monthData));
+    }
+
+    // 绑定按钮点击事件
+    document.getElementById('clickMe').addEventListener('click', function () {
+        caclAvgTime(model.readOneMonthData());
+    });
+
+    // 油猴插件修改页面处理
     const observer = new MutationObserver(callback);
     observer.observe(document, { characterData: true, subtree: true });
 
