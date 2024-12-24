@@ -249,7 +249,7 @@
                     signoutTime: signoutTime
                 });
             }
-            return { list: list, year: yearNow, month: monthNow ?? -1 + 1 };
+            return { list: list, year: yearNow, month: (monthNow ?? -1) + 1 };
         }
     }
 
